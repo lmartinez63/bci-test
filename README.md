@@ -230,8 +230,7 @@ com.nisum.bci
 - **Mapper**: `UserMapper` (implementa `EntityMapper<D, E>`) concentra la conversión entre DTO y entidad.
 - **Builder**: construcción de entidades y DTOs con Lombok `@Builder`.
 - **Repository**: acceso a datos con Spring Data JPA.
-- **Service Layer (interfaz + implementación)**: el controller depende de `UserService`, no de su implementación.
-- **Configuration Properties**: parámetros tipados en `ValidationProperties`, `JwtProperties` y `PasswordProperties`.
+- **Singleton (implícito, gestionado por Spring)**: los beans (`@Service`, `@Component`, `@Configuration`) tienen scope singleton por defecto, así que existe una sola instancia de cada servicio y validador. Los objetos costosos se crean una vez y se reutilizan: el `Algorithm` y el `JWTVerifier` en `JwtServiceImpl` y el `Pattern` de cada validador. No se usa el Singleton clásico (`getInstance()`) porque acopla el código y dificulta los tests.
 - **Filter**: `RequestLoggingFilter` agrega trazabilidad por request sin tocar la lógica de negocio.
 
 ## Postman
