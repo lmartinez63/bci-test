@@ -95,6 +95,115 @@ INFO [requestId=7ff591a3-...] UserServiceImpl  : action=registerUser, status=per
 INFO [requestId=7ff591a3-...] RequestLoggingFilter : action=httpRequest, method=POST, uri=/users/register, status=201, durationMs=296
 ```
 
+## Diagrama de la solución
+
+### Componentes
+
+```mermaid
+flowchart LR
+    client["Cliente<br/>Postman / Swagger UI"]
+
+    subgraph app["User Registration API (Spring Boot)"]
+        filter["RequestLoggingFilter<br/>requestId + log HTTP"]
+        security["SecurityConfig<br/>endpoints públicos, stateless"]
+        controller["UserController<br/>POST /users/register<br/>@Valid"]
+        advice["GlobalExceptionHandler<br/>400 / 405 / 409 / 415 / 500"]
+        service["UserServiceImpl"]
+
+        subgraph validators["Validadores (@Order)"]
+            v1["EmailFormatValidator<br/>@Order 1"]
+            v2["PasswordFormatValidator<br/>@Order 2"]
+            v3["EmailAlreadyRegisteredValidator<br/>@Order 3"]
+            v1 --> v2 --> v3
+        end
+
+        mapper["UserMapper"]
+        password["PasswordServiceImpl<br/>BCrypt / PBKDF2-SHA512"]
+        jwt["JwtServiceImpl<br/>HS256, 24 h, claim email"]
+        repo["UserRepository<br/>Spring Data JPA"]
+    end
+
+    db[("H2 en memoria<br/>users / phones")]
+
+    client -->|"JSON"| filter --> security --> controller
+    controller --> service
+    service --> v1
+    v3 --> repo
+    service --> mapper
+    service --> password
+    service --> jwt
+    service --> repo --> db
+    controller -. "excepciones" .-> advice
+    advice -. "{ mensaje }" .-> client
+    controller -->|"201 + token"| client
+```
+
+### Flujo de registro
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Cliente
+    participant UC as UserController
+    participant US as UserServiceImpl
+    participant V as UserValidators
+    participant PS as PasswordService
+    participant JS as JwtService
+    participant R as UserRepository
+    participant GH as GlobalExceptionHandler
+
+    C->>UC: POST /users/register
+    alt Campos obligatorios vacíos o teléfono sin number
+        UC-->>GH: MethodArgumentNotValidException
+        GH-->>C: 400 { mensaje }
+    else Request válido
+        UC->>US: register(request)
+        US->>V: validate(request)
+        alt Correo o contraseña con formato inválido
+            V-->>GH: InvalidFieldException
+            GH-->>C: 400 { mensaje }
+        else Correo ya registrado
+            V->>R: existsByEmailIgnoreCase(email)
+            V-->>GH: EmailAlreadyExistsException
+            GH-->>C: 409 { mensaje }
+        else Validaciones OK
+            US->>PS: encode(password)
+            PS-->>US: {bcrypt}$2a$10$...
+            US->>JS: generateToken(email)
+            JS-->>US: JWT (HS256, 24 h)
+            US->>R: saveAndFlush(user + phones)
+            R-->>US: User con UUID
+            US-->>UC: UserRegisterResponse
+            UC-->>C: 201 Created (sin password)
+        end
+    end
+```
+
+### Modelo de datos
+
+```mermaid
+erDiagram
+    USERS ||--o{ PHONES : tiene
+    USERS {
+        varchar id PK "UUID"
+        varchar name
+        varchar email UK
+        varchar password "hash BCrypt"
+        timestamp created
+        timestamp modified
+        timestamp last_login
+        varchar token "JWT"
+        boolean isactive
+    }
+    PHONES {
+        bigint id PK
+        varchar number "obligatorio"
+        varchar citycode
+        varchar countrycode
+        varchar user_id FK
+    }
+```
+
 ## Estructura
 
 ```
