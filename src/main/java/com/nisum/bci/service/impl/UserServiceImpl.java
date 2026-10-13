@@ -9,14 +9,13 @@ import com.nisum.bci.service.JwtService;
 import com.nisum.bci.service.PasswordService;
 import com.nisum.bci.service.UserService;
 import com.nisum.bci.util.MaskingUtils;
-import com.nisum.bci.validator.UserValidator;
+import com.nisum.bci.validator.ValidateUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -24,23 +23,20 @@ import java.util.List;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
-    private final List<UserValidator> userValidators;
     private final UserMapper userMapper;
     private final PasswordService passwordService;
     private final JwtService jwtService;
 
     /**
-     * Registers a new user after running all the validators
+     * Registers a new user; the request is validated by UserValidationAspect through @ValidateUser
      * @param request - UserRegisterRequest
      * @return - UserRegisterResponse
      */
     @Override
+    @ValidateUser
     @Transactional
     public UserRegisterResponse register(UserRegisterRequest request) {
         String maskedEmail = MaskingUtils.maskEmail(request.getEmail());
-        log.debug("action=registerUser, step=validate, validators={}, email={}", userValidators.size(), maskedEmail);
-        userValidators.forEach(validator -> validator.validate(request));
-
         LocalDateTime now = LocalDateTime.now();
         User user = userMapper.toEntity(request);
         user.setPassword(passwordService.encode(request.getPassword()));

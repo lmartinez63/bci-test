@@ -108,6 +108,7 @@ flowchart LR
         security["SecurityConfig<br/>endpoints públicos, stateless"]
         controller["UserController<br/>POST /users/register<br/>@Valid"]
         advice["GlobalExceptionHandler<br/>400 / 405 / 409 / 415 / 500"]
+        aspect["UserValidationAspect<br/>Decorator vía @ValidateUser"]
         service["UserServiceImpl"]
 
         subgraph validators["Validadores (@Order)"]
@@ -126,8 +127,9 @@ flowchart LR
     db[("H2 en memoria<br/>users / phones")]
 
     client -->|"JSON"| filter --> security --> controller
-    controller --> service
-    service --> v1
+    controller -->|"register()"| aspect
+    aspect --> v1
+    aspect -->|"si las validaciones pasan"| service
     v3 --> repo
     service --> mapper
     service --> password
@@ -145,8 +147,9 @@ sequenceDiagram
     autonumber
     actor C as Cliente
     participant UC as UserController
-    participant US as UserServiceImpl
+    participant VA as UserValidationAspect
     participant V as UserValidators
+    participant US as UserServiceImpl
     participant PS as PasswordService
     participant JS as JwtService
     participant R as UserRepository
@@ -157,8 +160,8 @@ sequenceDiagram
         UC-->>GH: MethodArgumentNotValidException
         GH-->>C: 400 { mensaje }
     else Request válido
-        UC->>US: register(request)
-        US->>V: validate(request)
+        UC->>VA: register(request) con @ValidateUser
+        VA->>V: validate(request) en orden @Order
         alt Correo o contraseña con formato inválido
             V-->>GH: InvalidFieldException
             GH-->>C: 400 { mensaje }
@@ -167,6 +170,7 @@ sequenceDiagram
             V-->>GH: EmailAlreadyExistsException
             GH-->>C: 409 { mensaje }
         else Validaciones OK
+            VA->>US: register(request)
             US->>PS: encode(password)
             PS-->>US: {bcrypt}$2a$10$...
             US->>JS: generateToken(email)
@@ -220,12 +224,14 @@ com.nisum.bci
 ├── util              MaskingUtils
 ├── service           UserService, JwtService, PasswordService
 │   └── impl          UserServiceImpl, JwtServiceImpl, PasswordServiceImpl
-└── validator         UserValidator, EmailFormatValidator, PasswordFormatValidator, EmailAlreadyRegisteredValidator
+└── validator         UserValidator, EmailFormatValidator, PasswordFormatValidator, EmailAlreadyRegisteredValidator,
+                      ValidateUser, UserValidationAspect
 ```
 
 ## Patrones de diseño
 
-- **Strategy + Chain of Responsibility**: cada regla de negocio implementa `UserValidator`. Spring inyecta la lista ordenada con `@Order` y `UserServiceImpl` la recorre antes de persistir. Agregar una regla nueva no requiere modificar el servicio.
+- **Strategy + Chain of Responsibility**: cada regla de negocio implementa `UserValidator`. Spring inyecta la lista ordenada con `@Order` y se recorre en ese orden; la primera regla que falla corta la cadena. Agregar una regla nueva no requiere modificar el servicio.
+- **Decorator (con anotaciones)**: `@ValidateUser` marca `UserServiceImpl.register`. `UserValidationAspect` (Spring AOP) envuelve el método con un proxy y ejecuta la cadena de validadores antes de delegar, así `UserServiceImpl` solo registra. El aspecto corre antes que `@Transactional`, por lo que un request inválido no abre transacción.
 - **Strategy (hash de contraseña)**: `DelegatingPasswordEncoder` elige la implementación (`bcrypt` o `pbkdf2-sha512`) según `password.algorithm`.
 - **Mapper**: `UserMapper` (implementa `EntityMapper<D, E>`) concentra la conversión entre DTO y entidad.
 - **Builder**: construcción de entidades y DTOs con Lombok `@Builder`.
@@ -245,5 +251,6 @@ mvn test
 ```
 
 - `UserServiceImplTest`, `JwtServiceImplTest`, `PasswordServiceImplTest`, `*ValidatorTest`, `MaskingUtilsTest`: pruebas unitarias.
+- `UserValidationAspectTest`: aplica el aspecto con `AspectJProxyFactory` y verifica el orden de los validadores y que el método decorado no se ejecuta si alguno falla.
 - `GlobalExceptionHandlerTest`: MockMvc standalone con `UserService` mockeado; cubre cada handler del advice (409, 400, 415, 405 y 500).
 - `UserControllerTest`: pruebas de integración con MockMvc y H2 (201, 409, 400, hash BCrypt persistido y header `X-Request-Id`).

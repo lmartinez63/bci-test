@@ -4,13 +4,10 @@ import com.nisum.bci.dto.PhoneDTO;
 import com.nisum.bci.dto.UserRegisterRequest;
 import com.nisum.bci.dto.UserRegisterResponse;
 import com.nisum.bci.entity.User;
-import com.nisum.bci.exception.EmailAlreadyExistsException;
-import com.nisum.bci.exception.InvalidFieldException;
 import com.nisum.bci.mapper.UserMapper;
 import com.nisum.bci.repository.UserRepository;
 import com.nisum.bci.service.JwtService;
 import com.nisum.bci.service.PasswordService;
-import com.nisum.bci.validator.UserValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,17 +15,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,12 +38,6 @@ class UserServiceImplTest {
     private UserRepository userRepository;
 
     @Mock
-    private UserValidator emailValidator;
-
-    @Mock
-    private UserValidator passwordValidator;
-
-    @Mock
     private PasswordService passwordService;
 
     @Mock
@@ -62,8 +49,7 @@ class UserServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserServiceImpl(userRepository, Arrays.asList(emailValidator, passwordValidator),
-                new UserMapper(), passwordService, jwtService);
+        userService = new UserServiceImpl(userRepository, new UserMapper(), passwordService, jwtService);
         request = UserRegisterRequest.builder()
                 .name("Juan Rodriguez")
                 .email(EMAIL)
@@ -114,26 +100,5 @@ class UserServiceImplTest {
 
         assertEquals(EMAIL, response.getEmail());
         verify(jwtService, times(1)).generateToken(EMAIL);
-    }
-
-    @Test
-    void register_shouldThrowEmailAlreadyExistsException_whenEmailIsRegistered() {
-        doThrow(new EmailAlreadyExistsException()).when(emailValidator).validate(request);
-
-        assertThrows(EmailAlreadyExistsException.class, () -> userService.register(request));
-
-        verify(passwordValidator, never()).validate(any());
-        verify(userRepository, never()).saveAndFlush(any());
-    }
-
-    @Test
-    void register_shouldThrowInvalidFieldException_whenPasswordIsInvalid() {
-        doThrow(new InvalidFieldException("invalid password")).when(passwordValidator).validate(request);
-
-        assertThrows(InvalidFieldException.class, () -> userService.register(request));
-
-        verify(emailValidator, times(1)).validate(request);
-        verify(passwordService, never()).encode(any());
-        verify(userRepository, never()).saveAndFlush(any());
     }
 }
